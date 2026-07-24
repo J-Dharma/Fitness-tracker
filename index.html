@@ -164,6 +164,10 @@
       background: #2563eb;
       color: white;
     }
+    .chip-btn.complete {
+      background: #86efac;
+      color: #14532d;
+    }
     .chart-note {
       font-size: 0.75rem;
       color: #999;
@@ -180,7 +184,7 @@
       display: flex;
       align-items: flex-end;
       gap: 16px;
-      height: 160px;
+      height: 240px;
       width: max-content;
       min-width: 100%;
       padding: 0 4px;
@@ -552,6 +556,16 @@
       return count;
     }
 
+    function isGoalCompleteToday(exercise) {
+      const goal = data.goals[exercise];
+      if (!goal) return false;
+      const today = todayStr();
+      const total = data.logs
+        .filter(l => l.exercise === exercise && l.date === today)
+        .reduce((sum, l) => sum + l.reps, 0);
+      return total >= goal;
+    }
+
     function getFirstLogDate(exercise) {
       const dates = data.logs.filter(l => l.exercise === exercise).map(l => l.date);
       if (dates.length === 0) return null;
@@ -616,9 +630,11 @@
         el.innerHTML = `<div class="empty">No ${chartCategoryFilter.toLowerCase()} exercises</div>`;
         return;
       }
-      el.innerHTML = filtered.map(e => `
-        <button type="button" class="chip-btn${e === chartExercise ? ' active' : ''}" onclick="selectChartExercise('${e}')">${e}</button>
-      `).join('');
+      el.innerHTML = filtered.map(e => {
+        const active = e === chartExercise;
+        const complete = !active && isGoalCompleteToday(e);
+        return `<button type="button" class="chip-btn${active ? ' active' : ''}${complete ? ' complete' : ''}" onclick="selectChartExercise('${e}')">${e}</button>`;
+      }).join('');
     }
 
     function renderChartPeriodButtons() {
