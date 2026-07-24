@@ -127,6 +127,12 @@
     .chart-controls select {
       margin-bottom: 0;
     }
+    .chart-note {
+      font-size: 0.75rem;
+      color: #999;
+      margin-bottom: 8px;
+      min-height: 1em;
+    }
     .chart-scroll {
       overflow-x: auto;
       overflow-y: hidden;
@@ -228,6 +234,7 @@
           <option value="month">Month</option>
         </select>
       </div>
+      <div class="chart-note" id="chart-note"></div>
       <div class="chart-scroll" id="chart-scroll">
         <div class="chart-bars" id="chart-bars"></div>
       </div>
@@ -411,6 +418,15 @@
       return new Date(key + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
 
+    function getPeriodDays(key, period) {
+      if (period === 'week') return 7;
+      if (period === 'month') {
+        const [y, m] = key.split('-').map(Number);
+        return new Date(y, m, 0).getDate();
+      }
+      return 1; // day
+    }
+
     function renderChartExerciseSelect() {
       const sel = document.getElementById('chart-exercise');
       const prev = sel.value;
@@ -441,15 +457,24 @@
         return;
       }
 
+      const values = {};
+      keys.forEach(k => {
+        values[k] = totals[k] / getPeriodDays(k, period);
+      });
+
+      const note = document.getElementById('chart-note');
+      note.textContent = period === 'day' ? '' : 'Daily average reps';
+
       const goal = data.goals[exercise];
-      const max = Math.max(...keys.map(k => totals[k]), goal || 0);
+      const max = Math.max(...keys.map(k => values[k]), goal || 0);
 
       bars.innerHTML = keys.map(k => {
-        const value = totals[k];
+        const value = values[k];
         const heightPct = Math.max(4, Math.round((value / max) * 100));
+        const displayValue = Number.isInteger(value) ? value : value.toFixed(1);
         return `
           <div class="chart-bar-col">
-            <div class="chart-bar-value">${value}</div>
+            <div class="chart-bar-value">${displayValue}</div>
             <div class="chart-bar" style="height:${heightPct}%"></div>
             <div class="chart-bar-label">${getPeriodLabel(k, period)}</div>
           </div>
