@@ -107,6 +107,54 @@
       background: #2563eb;
       color: white;
     }
+    .chart-controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .chart-controls select {
+      margin-bottom: 0;
+    }
+    .chart-scroll {
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 4px;
+    }
+    .chart-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 16px;
+      height: 160px;
+      min-width: 100%;
+      padding: 0 4px;
+    }
+    .chart-bar-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      height: 100%;
+      min-width: 36px;
+      flex-shrink: 0;
+    }
+    .chart-bar-value {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 4px;
+    }
+    .chart-bar {
+      width: 24px;
+      background: #2563eb;
+      border-radius: 4px 4px 0 0;
+      min-height: 4px;
+    }
+    .chart-bar-label {
+      font-size: 0.7rem;
+      color: #777;
+      margin-top: 6px;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -141,6 +189,20 @@
 
   <!-- HISTORY TAB -->
   <div id="history-tab" style="display:none">
+    <div class="card">
+      <div class="chart-controls">
+        <select id="chart-exercise"></select>
+        <select id="chart-period">
+          <option value="day">Day</option>
+          <option value="week">Week</option>
+          <option value="month">Month</option>
+        </select>
+      </div>
+      <div class="chart-scroll" id="chart-scroll">
+        <div class="chart-bars" id="chart-bars"></div>
+      </div>
+    </div>
+
     <div class="card">
       <div id="history-list"></div>
     </div>
@@ -184,7 +246,11 @@
         document.getElementById(t + '-tab').style.display = t === name ? 'block' : 'none';
         document.querySelectorAll('.tab')[['log','history','exercises'].indexOf(t)].classList.toggle('active', t === name);
       });
-      if (name === 'history') renderHistory();
+      if (name === 'history') {
+        renderChartExerciseSelect();
+        renderChart();
+        renderHistory();
+      }
       if (name === 'exercises') renderExercises();
       if (name === 'log') {
         renderExerciseSelect();
@@ -205,6 +271,7 @@
       document.getElementById('new-exercise').value = '';
       renderExercises();
       renderExerciseSelect();
+      renderChartExerciseSelect();
     }
 
     function deleteExercise(name) {
@@ -213,6 +280,7 @@
       save();
       renderExercises();
       renderExerciseSelect();
+      renderChartExerciseSelect();
     }
 
     function renderExercises() {
@@ -277,6 +345,75 @@
       `).join('');
     }
 
+    // ---------- Chart ----------
+    function getPeriodKey(dateStr, period) {
+      if (period === 'day') return dateStr;
+      const d = new Date(dateStr + 'T00:00:00');
+      if (period === 'week') {
+        const day = d.getDay();
+        const diff = (day === 0 ? -6 : 1) - day;
+        d.setDate(d.getDate() + diff);
+        return d.toISOString().slice(0, 10);
+      }
+      return dateStr.slice(0, 7); // month
+    }
+
+    function getPeriodLabel(key, period) {
+      if (period === 'month') {
+        const [y, m] = key.split('-');
+        return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+      }
+      return new Date(key + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    function renderChartExerciseSelect() {
+      const sel = document.getElementById('chart-exercise');
+      const prev = sel.value;
+      sel.innerHTML = data.exercises.map(e => `<option value="${e}">${e}</option>`).join('');
+      if (data.exercises.includes(prev)) sel.value = prev;
+    }
+
+    function renderChart() {
+      const exercise = document.getElementById('chart-exercise').value;
+      const period = document.getElementById('chart-period').value;
+      const bars = document.getElementById('chart-bars');
+
+      if (!exercise) {
+        bars.innerHTML = '<div class="empty">No exercises yet</div>';
+        return;
+      }
+
+      const totals = {};
+      data.logs.filter(l => l.exercise === exercise).forEach(l => {
+        const key = getPeriodKey(l.date, period);
+        totals[key] = (totals[key] || 0) + l.reps;
+      });
+
+      const keys = Object.keys(totals).sort();
+
+      if (keys.length === 0) {
+        bars.innerHTML = '<div class="empty">No reps logged yet</div>';
+        return;
+      }
+
+      const max = Math.max(...keys.map(k => totals[k]));
+
+      bars.innerHTML = keys.map(k => {
+        const value = totals[k];
+        const heightPct = Math.max(4, Math.round((value / max) * 100));
+        return `
+          <div class="chart-bar-col">
+            <div class="chart-bar-value">${value}</div>
+            <div class="chart-bar" style="height:${heightPct}%"></div>
+            <div class="chart-bar-label">${getPeriodLabel(k, period)}</div>
+          </div>
+        `;
+      }).join('');
+
+      const scroll = document.getElementById('chart-scroll');
+      scroll.scrollLeft = scroll.scrollWidth;
+    }
+
     // ---------- History ----------
     function renderHistory() {
       const container = document.getElementById('history-list');
@@ -310,6 +447,9 @@
     // ---------- Init ----------
     document.getElementById('log-date').value = todayStr();
     document.getElementById('log-date').addEventListener('change', renderToday);
+
+    document.getElementById('chart-exercise').addEventListener('change', renderChart);
+    document.getElementById('chart-period').addEventListener('change', renderChart);
 
     renderExerciseSelect();
     renderToday();
