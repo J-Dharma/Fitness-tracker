@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>Simple Rep Tracker</title>
+  <title>Fitness Reps</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -69,6 +69,18 @@
       border-bottom: 1px solid #eee;
     }
     .exercise-item:last-child { border-bottom: none; }
+    .exercise-item > span {
+      flex: 1;
+    }
+    .goal-input {
+      width: 70px;
+      flex: none;
+      margin-bottom: 0;
+      margin-right: 8px;
+      padding: 6px 8px;
+      font-size: 0.9rem;
+      text-align: center;
+    }
     .reps {
       font-weight: 700;
       font-size: 1.1rem;
@@ -107,10 +119,82 @@
       background: #2563eb;
       color: white;
     }
+    .chart-controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .chart-controls select {
+      margin-bottom: 0;
+    }
+    .chart-note {
+      font-size: 0.75rem;
+      color: #999;
+      margin-bottom: 8px;
+      min-height: 1em;
+    }
+    .chart-scroll {
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 4px;
+    }
+    .chart-bars {
+      position: relative;
+      display: flex;
+      align-items: flex-end;
+      gap: 16px;
+      height: 160px;
+      min-width: 100%;
+      padding: 0 4px;
+    }
+    .chart-goal-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      border-top: 2px dashed #dc2626;
+      pointer-events: none;
+    }
+    .chart-goal-label {
+      position: absolute;
+      right: 4px;
+      transform: translateY(-100%);
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: #dc2626;
+      background: white;
+      padding: 0 4px;
+    }
+    .chart-bar-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      height: 100%;
+      min-width: 36px;
+      flex-shrink: 0;
+    }
+    .chart-bar-value {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 4px;
+    }
+    .chart-bar {
+      width: 24px;
+      background: #2563eb;
+      border-radius: 4px 4px 0 0;
+      min-height: 4px;
+    }
+    .chart-bar-label {
+      font-size: 0.7rem;
+      color: #777;
+      margin-top: 6px;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
-  <h1>Rep Tracker</h1>
+  <h1>Fitness Reps</h1>
 
   <div class="tabs">
     <div class="tab active" onclick="showTab('log')">Log</div>
@@ -142,6 +226,21 @@
   <!-- HISTORY TAB -->
   <div id="history-tab" style="display:none">
     <div class="card">
+      <div class="chart-controls">
+        <select id="chart-exercise"></select>
+        <select id="chart-period">
+          <option value="day">Day</option>
+          <option value="week">Week</option>
+          <option value="month">Month</option>
+        </select>
+      </div>
+      <div class="chart-note" id="chart-note"></div>
+      <div class="chart-scroll" id="chart-scroll">
+        <div class="chart-bars" id="chart-bars"></div>
+      </div>
+    </div>
+
+    <div class="card">
       <div id="history-list"></div>
     </div>
   </div>
@@ -162,7 +261,8 @@
 
   <script>
     // ---------- Data ----------
-    let data = JSON.parse(localStorage.getItem('repTracker') || '{"exercises":["Push-ups","Pull-ups","Squats","Sit-ups"],"logs":[]}');
+    let data = JSON.parse(localStorage.getItem('repTracker') || '{"exercises":["Push-ups","Pull-ups","Squats","Sit-ups"],"logs":[],"goals":{}}');
+    if (!data.goals) data.goals = {};
 
     function save() {
       localStorage.setItem('repTracker', JSON.stringify(data));
@@ -184,7 +284,11 @@
         document.getElementById(t + '-tab').style.display = t === name ? 'block' : 'none';
         document.querySelectorAll('.tab')[['log','history','exercises'].indexOf(t)].classList.toggle('active', t === name);
       });
-      if (name === 'history') renderHistory();
+      if (name === 'history') {
+        renderChartExerciseSelect();
+        renderChart();
+        renderHistory();
+      }
       if (name === 'exercises') renderExercises();
       if (name === 'log') {
         renderExerciseSelect();
@@ -205,14 +309,29 @@
       document.getElementById('new-exercise').value = '';
       renderExercises();
       renderExerciseSelect();
+      renderChartExerciseSelect();
     }
 
     function deleteExercise(name) {
       if (!confirm('Delete "' + name + '"?')) return;
       data.exercises = data.exercises.filter(e => e !== name);
+      delete data.goals[name];
       save();
       renderExercises();
       renderExerciseSelect();
+      renderChartExerciseSelect();
+      renderChart();
+    }
+
+    function setGoal(name, value) {
+      const num = parseInt(value);
+      if (!num || num < 1) {
+        delete data.goals[name];
+      } else {
+        data.goals[name] = num;
+      }
+      save();
+      renderChart();
     }
 
     function renderExercises() {
@@ -224,6 +343,7 @@
       list.innerHTML = data.exercises.map(e => `
         <li class="exercise-item">
           <span>${e}</span>
+          <input type="number" class="goal-input" min="1" placeholder="Goal" value="${data.goals[e] || ''}" onchange="setGoal('${e}', this.value)">
           <button class="secondary" style="width:auto;padding:6px 10px;font-size:0.85rem" onclick="deleteExercise('${e}')">Delete</button>
         </li>
       `).join('');
@@ -277,6 +397,111 @@
       `).join('');
     }
 
+    // ---------- Chart ----------
+    function getPeriodKey(dateStr, period) {
+      if (period === 'day') return dateStr;
+      const d = new Date(dateStr + 'T00:00:00');
+      if (period === 'week') {
+        const day = d.getDay();
+        const diff = (day === 0 ? -6 : 1) - day;
+        d.setDate(d.getDate() + diff);
+        return d.toISOString().slice(0, 10);
+      }
+      return dateStr.slice(0, 7); // month
+    }
+
+    function getPeriodLabel(key, period) {
+      if (period === 'month') {
+        const [y, m] = key.split('-');
+        return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+      }
+      return new Date(key + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    function getPeriodDays(key, period) {
+      if (period === 'week') return 7;
+      if (period === 'month') {
+        const [y, m] = key.split('-').map(Number);
+        return new Date(y, m, 0).getDate();
+      }
+      return 1; // day
+    }
+
+    function renderChartExerciseSelect() {
+      const sel = document.getElementById('chart-exercise');
+      const prev = sel.value;
+      sel.innerHTML = data.exercises.map(e => `<option value="${e}">${e}</option>`).join('');
+      if (data.exercises.includes(prev)) sel.value = prev;
+    }
+
+    function renderChart() {
+      const exercise = document.getElementById('chart-exercise').value;
+      const period = document.getElementById('chart-period').value;
+      const bars = document.getElementById('chart-bars');
+
+      if (!exercise) {
+        bars.innerHTML = '<div class="empty">No exercises yet</div>';
+        return;
+      }
+
+      const totals = {};
+      data.logs.filter(l => l.exercise === exercise).forEach(l => {
+        const key = getPeriodKey(l.date, period);
+        totals[key] = (totals[key] || 0) + l.reps;
+      });
+
+      const keys = Object.keys(totals).sort();
+
+      if (keys.length === 0) {
+        bars.innerHTML = '<div class="empty">No reps logged yet</div>';
+        return;
+      }
+
+      const values = {};
+      keys.forEach(k => {
+        values[k] = totals[k] / getPeriodDays(k, period);
+      });
+
+      const note = document.getElementById('chart-note');
+      note.textContent = period === 'day' ? '' : 'Daily average reps';
+
+      const goal = data.goals[exercise];
+      const max = Math.max(...keys.map(k => values[k]), goal || 0);
+
+      bars.innerHTML = keys.map(k => {
+        const value = values[k];
+        const heightPct = Math.max(4, Math.round((value / max) * 100));
+        const displayValue = Number.isInteger(value) ? value : value.toFixed(1);
+        return `
+          <div class="chart-bar-col">
+            <div class="chart-bar-value">${displayValue}</div>
+            <div class="chart-bar" style="height:${heightPct}%"></div>
+            <div class="chart-bar-label">${getPeriodLabel(k, period)}</div>
+          </div>
+        `;
+      }).join('');
+
+      if (goal) {
+        const labelEl = bars.querySelector('.chart-bar-label');
+        const labelHeight = labelEl ? labelEl.offsetHeight : 0;
+        const bottomPx = labelHeight + (goal / max) * bars.clientHeight;
+
+        const line = document.createElement('div');
+        line.className = 'chart-goal-line';
+        line.style.bottom = bottomPx + 'px';
+        bars.appendChild(line);
+
+        const lineLabel = document.createElement('div');
+        lineLabel.className = 'chart-goal-label';
+        lineLabel.style.bottom = bottomPx + 'px';
+        lineLabel.textContent = 'Goal: ' + goal;
+        bars.appendChild(lineLabel);
+      }
+
+      const scroll = document.getElementById('chart-scroll');
+      scroll.scrollLeft = scroll.scrollWidth;
+    }
+
     // ---------- History ----------
     function renderHistory() {
       const container = document.getElementById('history-list');
@@ -310,6 +535,9 @@
     // ---------- Init ----------
     document.getElementById('log-date').value = todayStr();
     document.getElementById('log-date').addEventListener('change', renderToday);
+
+    document.getElementById('chart-exercise').addEventListener('change', renderChart);
+    document.getElementById('chart-period').addEventListener('change', renderChart);
 
     renderExerciseSelect();
     renderToday();
