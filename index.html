@@ -72,11 +72,33 @@
     .exercise-item > span {
       flex: 1;
     }
+    .exercise-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .exercise-row:last-child { border-bottom: none; }
+    .exercise-row-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .exercise-row-controls {
+      display: flex;
+      gap: 8px;
+    }
+    .category-select {
+      flex: 1;
+      margin-bottom: 0;
+      padding: 6px 8px;
+      font-size: 0.85rem;
+    }
     .goal-input {
       width: 70px;
       flex: none;
       margin-bottom: 0;
-      margin-right: 8px;
       padding: 6px 8px;
       font-size: 0.9rem;
       text-align: center;
@@ -262,8 +284,10 @@
         <input type="text" id="new-exercise" placeholder="e.g. Push-ups">
         <button onclick="addExercise()" style="width:auto;padding:10px 16px">Add</button>
       </div>
+      <select id="new-exercise-category"></select>
     </div>
     <div class="card">
+      <div class="chip-row" id="exercise-category-filter"></div>
       <ul class="exercise-list" id="exercise-list"></ul>
     </div>
   </div>
@@ -272,9 +296,17 @@
     // ---------- Data ----------
     let data = JSON.parse(localStorage.getItem('repTracker') || '{"exercises":["Push-ups","Pull-ups","Squats","Sit-ups"],"logs":[],"goals":{}}');
     if (!data.goals) data.goals = {};
+    if (!data.categories) data.categories = {};
+
+    const CATEGORIES = ['Arms', 'Legs', 'Core', 'Other'];
 
     let chartExercise = null;
     let chartPeriod = 'day';
+    let exerciseCategoryFilter = 'All';
+
+    function getCategory(name) {
+      return data.categories[name] || 'Other';
+    }
 
     function save() {
       localStorage.setItem('repTracker', JSON.stringify(data));
@@ -302,7 +334,11 @@
         renderChart();
         renderHistory();
       }
-      if (name === 'exercises') renderExercises();
+      if (name === 'exercises') {
+        renderNewExerciseCategorySelect();
+        renderExerciseCategoryFilter();
+        renderExercises();
+      }
       if (name === 'log') {
         renderExerciseSelect();
         renderToday();
@@ -318,6 +354,7 @@
         return;
       }
       data.exercises.push(name);
+      data.categories[name] = document.getElementById('new-exercise-category').value;
       save();
       document.getElementById('new-exercise').value = '';
       renderExercises();
@@ -329,6 +366,7 @@
       if (!confirm('Delete "' + name + '"?')) return;
       data.exercises = data.exercises.filter(e => e !== name);
       delete data.goals[name];
+      delete data.categories[name];
       save();
       renderExercises();
       renderExerciseSelect();
@@ -347,17 +385,53 @@
       renderChart();
     }
 
+    function setCategory(name, value) {
+      data.categories[name] = value;
+      save();
+      renderExercises();
+    }
+
+    function renderNewExerciseCategorySelect() {
+      document.getElementById('new-exercise-category').innerHTML =
+        CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
+    }
+
+    function renderExerciseCategoryFilter() {
+      const options = ['All', ...CATEGORIES];
+      const el = document.getElementById('exercise-category-filter');
+      el.innerHTML = options.map(c => `
+        <button type="button" class="chip-btn${c === exerciseCategoryFilter ? ' active' : ''}" onclick="selectExerciseCategoryFilter('${c}')">${c}</button>
+      `).join('');
+    }
+
+    function selectExerciseCategoryFilter(category) {
+      exerciseCategoryFilter = category;
+      renderExerciseCategoryFilter();
+      renderExercises();
+    }
+
     function renderExercises() {
       const list = document.getElementById('exercise-list');
-      if (data.exercises.length === 0) {
-        list.innerHTML = '<div class="empty">No exercises yet</div>';
+      const exercises = exerciseCategoryFilter === 'All'
+        ? data.exercises
+        : data.exercises.filter(e => getCategory(e) === exerciseCategoryFilter);
+
+      if (exercises.length === 0) {
+        list.innerHTML = `<div class="empty">No ${exerciseCategoryFilter === 'All' ? '' : exerciseCategoryFilter.toLowerCase() + ' '}exercises yet</div>`;
         return;
       }
-      list.innerHTML = data.exercises.map(e => `
-        <li class="exercise-item">
-          <span>${e}</span>
-          <input type="number" class="goal-input" min="1" placeholder="Goal" value="${data.goals[e] || ''}" onchange="setGoal('${e}', this.value)">
-          <button class="secondary" style="width:auto;padding:6px 10px;font-size:0.85rem" onclick="deleteExercise('${e}')">Delete</button>
+      list.innerHTML = exercises.map(e => `
+        <li class="exercise-row">
+          <div class="exercise-row-top">
+            <span>${e}</span>
+            <button class="secondary" style="width:auto;padding:6px 10px;font-size:0.85rem" onclick="deleteExercise('${e}')">Delete</button>
+          </div>
+          <div class="exercise-row-controls">
+            <select class="category-select" onchange="setCategory('${e}', this.value)">
+              ${CATEGORIES.map(c => `<option value="${c}"${c === getCategory(e) ? ' selected' : ''}>${c}</option>`).join('')}
+            </select>
+            <input type="number" class="goal-input" min="1" placeholder="Goal" value="${data.goals[e] || ''}" onchange="setGoal('${e}', this.value)">
+          </div>
         </li>
       `).join('');
     }
