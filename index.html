@@ -69,6 +69,18 @@
       border-bottom: 1px solid #eee;
     }
     .exercise-item:last-child { border-bottom: none; }
+    .exercise-item > span {
+      flex: 1;
+    }
+    .goal-input {
+      width: 70px;
+      flex: none;
+      margin-bottom: 0;
+      margin-right: 8px;
+      padding: 6px 8px;
+      font-size: 0.9rem;
+      text-align: center;
+    }
     .reps {
       font-weight: 700;
       font-size: 1.1rem;
@@ -121,11 +133,29 @@
       padding-bottom: 4px;
     }
     .chart-bars {
+      position: relative;
       display: flex;
       align-items: flex-end;
       gap: 16px;
       height: 160px;
       min-width: 100%;
+      padding: 0 4px;
+    }
+    .chart-goal-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      border-top: 2px dashed #dc2626;
+      pointer-events: none;
+    }
+    .chart-goal-label {
+      position: absolute;
+      right: 4px;
+      transform: translateY(-100%);
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: #dc2626;
+      background: white;
       padding: 0 4px;
     }
     .chart-bar-col {
@@ -224,7 +254,8 @@
 
   <script>
     // ---------- Data ----------
-    let data = JSON.parse(localStorage.getItem('repTracker') || '{"exercises":["Push-ups","Pull-ups","Squats","Sit-ups"],"logs":[]}');
+    let data = JSON.parse(localStorage.getItem('repTracker') || '{"exercises":["Push-ups","Pull-ups","Squats","Sit-ups"],"logs":[],"goals":{}}');
+    if (!data.goals) data.goals = {};
 
     function save() {
       localStorage.setItem('repTracker', JSON.stringify(data));
@@ -277,10 +308,23 @@
     function deleteExercise(name) {
       if (!confirm('Delete "' + name + '"?')) return;
       data.exercises = data.exercises.filter(e => e !== name);
+      delete data.goals[name];
       save();
       renderExercises();
       renderExerciseSelect();
       renderChartExerciseSelect();
+      renderChart();
+    }
+
+    function setGoal(name, value) {
+      const num = parseInt(value);
+      if (!num || num < 1) {
+        delete data.goals[name];
+      } else {
+        data.goals[name] = num;
+      }
+      save();
+      renderChart();
     }
 
     function renderExercises() {
@@ -292,6 +336,7 @@
       list.innerHTML = data.exercises.map(e => `
         <li class="exercise-item">
           <span>${e}</span>
+          <input type="number" class="goal-input" min="1" placeholder="Goal" value="${data.goals[e] || ''}" onchange="setGoal('${e}', this.value)">
           <button class="secondary" style="width:auto;padding:6px 10px;font-size:0.85rem" onclick="deleteExercise('${e}')">Delete</button>
         </li>
       `).join('');
@@ -396,7 +441,8 @@
         return;
       }
 
-      const max = Math.max(...keys.map(k => totals[k]));
+      const goal = data.goals[exercise];
+      const max = Math.max(...keys.map(k => totals[k]), goal || 0);
 
       bars.innerHTML = keys.map(k => {
         const value = totals[k];
@@ -409,6 +455,23 @@
           </div>
         `;
       }).join('');
+
+      if (goal) {
+        const labelEl = bars.querySelector('.chart-bar-label');
+        const labelHeight = labelEl ? labelEl.offsetHeight : 0;
+        const bottomPx = labelHeight + (goal / max) * bars.clientHeight;
+
+        const line = document.createElement('div');
+        line.className = 'chart-goal-line';
+        line.style.bottom = bottomPx + 'px';
+        bars.appendChild(line);
+
+        const lineLabel = document.createElement('div');
+        lineLabel.className = 'chart-goal-label';
+        lineLabel.style.bottom = bottomPx + 'px';
+        lineLabel.textContent = 'Goal: ' + goal;
+        bars.appendChild(lineLabel);
+      }
 
       const scroll = document.getElementById('chart-scroll');
       scroll.scrollLeft = scroll.scrollWidth;
