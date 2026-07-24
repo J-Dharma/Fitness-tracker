@@ -65,11 +65,12 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 8px;
       padding: 10px 0;
       border-bottom: 1px solid #eee;
     }
     .exercise-item:last-child { border-bottom: none; }
-    .exercise-item > span {
+    .exercise-item > span:first-child {
       flex: 1;
     }
     .exercise-row {
@@ -108,9 +109,19 @@
       font-size: 1.1rem;
     }
     .history-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       padding: 8px 0;
       border-bottom: 1px solid #eee;
       font-size: 0.95rem;
+    }
+    .delete-log-btn {
+      width: auto;
+      flex: none;
+      margin-bottom: 0;
+      padding: 4px 10px;
+      font-size: 0.8rem;
     }
     .date-header {
       font-weight: 600;
@@ -475,28 +486,32 @@
       renderToday();
     }
 
+    function deleteLog(id) {
+      if (!confirm('Delete this entry?')) return;
+      data.logs = data.logs.filter(l => l.id !== id);
+      save();
+      renderToday();
+      renderHistory();
+      renderChart();
+      renderChartExerciseButtons();
+    }
+
     function renderToday() {
       const date = document.getElementById('log-date').value || todayStr();
       const todayLogs = data.logs.filter(l => l.date === date);
 
-      // Sum by exercise
-      const totals = {};
-      todayLogs.forEach(l => {
-        totals[l.exercise] = (totals[l.exercise] || 0) + l.reps;
-      });
-
       const list = document.getElementById('today-list');
-      const keys = Object.keys(totals);
 
-      if (keys.length === 0) {
+      if (todayLogs.length === 0) {
         list.innerHTML = '<div class="empty">No reps logged for this day</div>';
         return;
       }
 
-      list.innerHTML = keys.map(ex => `
+      list.innerHTML = todayLogs.map(l => `
         <li class="exercise-item">
-          <span>${ex}</span>
-          <span class="reps">${totals[ex]}</span>
+          <span>${l.exercise}</span>
+          <span class="reps">${l.reps}</span>
+          <button class="secondary delete-log-btn" onclick="deleteLog(${l.id})">Delete</button>
         </li>
       `).join('');
     }
@@ -758,19 +773,19 @@
       // Group by date
       const byDate = {};
       data.logs.forEach(l => {
-        if (!byDate[l.date]) byDate[l.date] = {};
-        byDate[l.date][l.exercise] = (byDate[l.date][l.exercise] || 0) + l.reps;
+        if (!byDate[l.date]) byDate[l.date] = [];
+        byDate[l.date].push(l);
       });
 
       const dates = Object.keys(byDate).sort().reverse();
 
       container.innerHTML = dates.map(date => {
-        const exercises = Object.keys(byDate[date]);
         return `
           <div class="date-header">${formatDate(date)}</div>
-          ${exercises.map(ex => `
+          ${byDate[date].map(l => `
             <div class="history-item">
-              ${ex}: <strong>${byDate[date][ex]}</strong>
+              <span>${l.exercise}: <strong>${l.reps}</strong></span>
+              <button class="secondary delete-log-btn" onclick="deleteLog(${l.id})">Delete</button>
             </div>
           `).join('')}
         `;
