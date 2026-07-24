@@ -415,9 +415,7 @@
       if (period === 'day') return dateStr;
       const d = new Date(dateStr + 'T00:00:00');
       if (period === 'week') {
-        const day = d.getDay();
-        const diff = (day === 0 ? -6 : 1) - day;
-        d.setDate(d.getDate() + diff);
+        d.setDate(d.getDate() - d.getDay()); // back up to Sunday
         return d.toISOString().slice(0, 10);
       }
       return dateStr.slice(0, 7); // month
@@ -431,21 +429,40 @@
       return new Date(key + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
 
-    // Sunday is a bonus day: it's excluded from both the reps sum and the
-    // day count for week/month averages, so logging on Sunday can't inflate
-    // the average, but a skipped Mon-Sat day still drags it down.
-    function getPeriodDays(key, period) {
-      if (period === 'week') return 6;
+    function getPeriodRange(key, period) {
+      if (period === 'week') {
+        const end = new Date(key + 'T00:00:00');
+        end.setDate(end.getDate() + 6);
+        return { start: key, end: end.toISOString().slice(0, 10) };
+      }
       if (period === 'month') {
         const [y, m] = key.split('-').map(Number);
-        const daysInMonth = new Date(y, m, 0).getDate();
-        let sundays = 0;
-        for (let day = 1; day <= daysInMonth; day++) {
-          if (new Date(y, m - 1, day).getDay() === 0) sundays++;
-        }
-        return daysInMonth - sundays;
+        const lastDay = new Date(y, m, 0).getDate();
+        return { start: `${key}-01`, end: `${key}-${String(lastDay).padStart(2, '0')}` };
       }
-      return 1; // day
+      return { start: key, end: key };
+    }
+
+    // Sunday is a bonus day: it's excluded from both the reps sum and the
+    // day count for week/month averages, so logging on Sunday can't inflate
+    // the average, but a skipped Mon-Sat day still drags it down. The count
+    // is also clamped to days that have actually happened - not before the
+    // exercise's first logged entry, and not past today for the
+    // still-in-progress current period.
+    function getEligibleDays(key, period, firstDate, today) {
+      if (period === 'day') return 1;
+      const { start, end } = getPeriodRange(key, period);
+      const rangeStart = start > firstDate ? start : firstDate;
+      const rangeEnd = end < today ? end : today;
+      if (rangeStart > rangeEnd) return 0;
+      let count = 0;
+      const d = new Date(rangeStart + 'T00:00:00');
+      const endD = new Date(rangeEnd + 'T00:00:00');
+      while (d <= endD) {
+        if (d.getDay() !== 0) count++;
+        d.setDate(d.getDate() + 1);
+      }
+      return count;
     }
 
     function getFirstLogDate(exercise) {
@@ -540,13 +557,15 @@
       });
 
       const keys = buildPeriodKeys(firstDate, period);
+      const today = todayStr();
 
       const values = {};
       keys.forEach(k => {
-        values[k] = (totals[k] || 0) / getPeriodDays(k, period);
+        const days = getEligibleDays(k, period, firstDate, today);
+        values[k] = days > 0 ? (totals[k] || 0) / days : 0;
       });
 
-      note.textContent = period === 'day' ? '' : 'Daily average reps (Sundays excluded)';
+      note.textContent = period === 'day' ? '' : 'Daily average reps (Sundays excluded, only days elapsed)';
 
       const goal = data.goals[exercise];
       const max = Math.max(...keys.map(k => values[k]), goal || 0, 1);
