@@ -231,7 +231,7 @@
 
     function renderExerciseSelect() {
       const sel = document.getElementById('log-exercise');
-      sel.innerHTML = data.exercises.map(e => `<option value="\( {e}"> \){e}</option>`).join('');
+      sel.innerHTML = data.exercises.map(e => `<option value="${e}">${e}</option>`).join('');
     }
 
     // ---------- Logging ----------
@@ -300,7 +300,7 @@
           <div class="date-header">${formatDate(date)}</div>
           ${exercises.map(ex => `
             <div class="history-item">
-              \( {ex}: <strong> \){byDate[date][ex]}</strong>
+              ${ex}: <strong>${byDate[date][ex]}</strong>
             </div>
           `).join('')}
         `;
