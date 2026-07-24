@@ -119,13 +119,28 @@
       background: #2563eb;
       color: white;
     }
-    .chart-controls {
+    .chip-row {
       display: flex;
-      gap: 8px;
-      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
     }
-    .chart-controls select {
+    .chip-btn {
+      flex: none;
+      width: auto;
+      padding: 6px 12px;
+      font-size: 0.85rem;
+      border-radius: 20px;
+      background: #e5e7eb;
+      color: #333;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
       margin-bottom: 0;
+    }
+    .chip-btn.active {
+      background: #2563eb;
+      color: white;
     }
     .chart-note {
       font-size: 0.75rem;
@@ -226,14 +241,8 @@
   <!-- HISTORY TAB -->
   <div id="history-tab" style="display:none">
     <div class="card">
-      <div class="chart-controls">
-        <select id="chart-exercise"></select>
-        <select id="chart-period">
-          <option value="day">Day</option>
-          <option value="week">Week</option>
-          <option value="month">Month</option>
-        </select>
-      </div>
+      <div class="chip-row" id="chart-exercise-buttons"></div>
+      <div class="chip-row" id="chart-period-buttons"></div>
       <div class="chart-note" id="chart-note"></div>
       <div class="chart-scroll" id="chart-scroll">
         <div class="chart-bars" id="chart-bars"></div>
@@ -264,6 +273,9 @@
     let data = JSON.parse(localStorage.getItem('repTracker') || '{"exercises":["Push-ups","Pull-ups","Squats","Sit-ups"],"logs":[],"goals":{}}');
     if (!data.goals) data.goals = {};
 
+    let chartExercise = null;
+    let chartPeriod = 'day';
+
     function save() {
       localStorage.setItem('repTracker', JSON.stringify(data));
     }
@@ -285,7 +297,8 @@
         document.querySelectorAll('.tab')[['log','history','exercises'].indexOf(t)].classList.toggle('active', t === name);
       });
       if (name === 'history') {
-        renderChartExerciseSelect();
+        renderChartExerciseButtons();
+        renderChartPeriodButtons();
         renderChart();
         renderHistory();
       }
@@ -309,7 +322,7 @@
       document.getElementById('new-exercise').value = '';
       renderExercises();
       renderExerciseSelect();
-      renderChartExerciseSelect();
+      renderChartExerciseButtons();
     }
 
     function deleteExercise(name) {
@@ -319,7 +332,7 @@
       save();
       renderExercises();
       renderExerciseSelect();
-      renderChartExerciseSelect();
+      renderChartExerciseButtons();
       renderChart();
     }
 
@@ -418,59 +431,130 @@
       return new Date(key + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
 
+    // Sunday is a bonus day: it's excluded from both the reps sum and the
+    // day count for week/month averages, so logging on Sunday can't inflate
+    // the average, but a skipped Mon-Sat day still drags it down.
     function getPeriodDays(key, period) {
-      if (period === 'week') return 7;
+      if (period === 'week') return 6;
       if (period === 'month') {
         const [y, m] = key.split('-').map(Number);
-        return new Date(y, m, 0).getDate();
+        const daysInMonth = new Date(y, m, 0).getDate();
+        let sundays = 0;
+        for (let day = 1; day <= daysInMonth; day++) {
+          if (new Date(y, m - 1, day).getDay() === 0) sundays++;
+        }
+        return daysInMonth - sundays;
       }
       return 1; // day
     }
 
-    function renderChartExerciseSelect() {
-      const sel = document.getElementById('chart-exercise');
-      const prev = sel.value;
-      sel.innerHTML = data.exercises.map(e => `<option value="${e}">${e}</option>`).join('');
-      if (data.exercises.includes(prev)) sel.value = prev;
+    function getFirstLogDate(exercise) {
+      const dates = data.logs.filter(l => l.exercise === exercise).map(l => l.date);
+      if (dates.length === 0) return null;
+      return dates.reduce((min, d) => d < min ? d : min);
+    }
+
+    function buildPeriodKeys(firstDate, period) {
+      const keys = [];
+      const today = todayStr();
+      if (period === 'day') {
+        const d = new Date(firstDate + 'T00:00:00');
+        const end = new Date(today + 'T00:00:00');
+        while (d <= end) {
+          keys.push(d.toISOString().slice(0, 10));
+          d.setDate(d.getDate() + 1);
+        }
+      } else if (period === 'week') {
+        const d = new Date(getPeriodKey(firstDate, 'week') + 'T00:00:00');
+        const end = new Date(getPeriodKey(today, 'week') + 'T00:00:00');
+        while (d <= end) {
+          keys.push(d.toISOString().slice(0, 10));
+          d.setDate(d.getDate() + 7);
+        }
+      } else { // month
+        let [y, m] = firstDate.slice(0, 7).split('-').map(Number);
+        const [ey, em] = today.slice(0, 7).split('-').map(Number);
+        while (y < ey || (y === ey && m <= em)) {
+          keys.push(`${y}-${String(m).padStart(2, '0')}`);
+          m++;
+          if (m > 12) { m = 1; y++; }
+        }
+      }
+      return keys;
+    }
+
+    function renderChartExerciseButtons() {
+      if (!chartExercise || !data.exercises.includes(chartExercise)) {
+        chartExercise = data.exercises[0] || null;
+      }
+      const el = document.getElementById('chart-exercise-buttons');
+      el.innerHTML = data.exercises.map(e => `
+        <button type="button" class="chip-btn${e === chartExercise ? ' active' : ''}" onclick="selectChartExercise('${e}')">${e}</button>
+      `).join('');
+    }
+
+    function renderChartPeriodButtons() {
+      const periods = [['day', 'Day'], ['week', 'Week'], ['month', 'Month']];
+      const el = document.getElementById('chart-period-buttons');
+      el.innerHTML = periods.map(([value, label]) => `
+        <button type="button" class="chip-btn${value === chartPeriod ? ' active' : ''}" onclick="selectChartPeriod('${value}')">${label}</button>
+      `).join('');
+    }
+
+    function selectChartExercise(name) {
+      chartExercise = name;
+      renderChartExerciseButtons();
+      renderChart();
+    }
+
+    function selectChartPeriod(period) {
+      chartPeriod = period;
+      renderChartPeriodButtons();
+      renderChart();
     }
 
     function renderChart() {
-      const exercise = document.getElementById('chart-exercise').value;
-      const period = document.getElementById('chart-period').value;
+      const exercise = chartExercise;
+      const period = chartPeriod;
       const bars = document.getElementById('chart-bars');
+      const note = document.getElementById('chart-note');
 
       if (!exercise) {
         bars.innerHTML = '<div class="empty">No exercises yet</div>';
+        note.textContent = '';
+        return;
+      }
+
+      const firstDate = getFirstLogDate(exercise);
+      if (!firstDate) {
+        bars.innerHTML = '<div class="empty">No reps logged yet</div>';
+        note.textContent = '';
         return;
       }
 
       const totals = {};
       data.logs.filter(l => l.exercise === exercise).forEach(l => {
+        if (period !== 'day' && new Date(l.date + 'T00:00:00').getDay() === 0) return;
         const key = getPeriodKey(l.date, period);
         totals[key] = (totals[key] || 0) + l.reps;
       });
 
-      const keys = Object.keys(totals).sort();
-
-      if (keys.length === 0) {
-        bars.innerHTML = '<div class="empty">No reps logged yet</div>';
-        return;
-      }
+      const keys = buildPeriodKeys(firstDate, period);
 
       const values = {};
       keys.forEach(k => {
-        values[k] = totals[k] / getPeriodDays(k, period);
+        values[k] = (totals[k] || 0) / getPeriodDays(k, period);
       });
 
-      const note = document.getElementById('chart-note');
-      note.textContent = period === 'day' ? '' : 'Daily average reps';
+      note.textContent = period === 'day' ? '' : 'Daily average reps (Sundays excluded)';
 
       const goal = data.goals[exercise];
-      const max = Math.max(...keys.map(k => values[k]), goal || 0);
+      const max = Math.max(...keys.map(k => values[k]), goal || 0, 1);
+      const SCALE = 0.85; // reserve headroom so the goal line/label never gets clipped
 
       bars.innerHTML = keys.map(k => {
         const value = values[k];
-        const heightPct = Math.max(4, Math.round((value / max) * 100));
+        const heightPct = Math.max(4, Math.round((value / max) * SCALE * 100));
         const displayValue = Number.isInteger(value) ? value : value.toFixed(1);
         return `
           <div class="chart-bar-col">
@@ -484,7 +568,7 @@
       if (goal) {
         const labelEl = bars.querySelector('.chart-bar-label');
         const labelHeight = labelEl ? labelEl.offsetHeight : 0;
-        const bottomPx = labelHeight + (goal / max) * bars.clientHeight;
+        const bottomPx = labelHeight + (goal / max) * SCALE * bars.clientHeight;
 
         const line = document.createElement('div');
         line.className = 'chart-goal-line';
@@ -535,9 +619,6 @@
     // ---------- Init ----------
     document.getElementById('log-date').value = todayStr();
     document.getElementById('log-date').addEventListener('change', renderToday);
-
-    document.getElementById('chart-exercise').addEventListener('change', renderChart);
-    document.getElementById('chart-period').addEventListener('change', renderChart);
 
     renderExerciseSelect();
     renderToday();
