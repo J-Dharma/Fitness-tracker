@@ -181,6 +181,7 @@
       align-items: flex-end;
       gap: 16px;
       height: 160px;
+      width: max-content;
       min-width: 100%;
       padding: 0 4px;
     }
@@ -193,13 +194,14 @@
     }
     .chart-goal-label {
       position: absolute;
-      right: 4px;
-      transform: translateY(-100%);
       font-size: 0.7rem;
       font-weight: 600;
       color: #dc2626;
       background: white;
-      padding: 0 4px;
+      border: 1px solid #dc2626;
+      border-radius: 4px;
+      padding: 1px 5px;
+      white-space: nowrap;
     }
     .chart-bar-col {
       display: flex;
@@ -263,6 +265,7 @@
   <!-- HISTORY TAB -->
   <div id="history-tab" style="display:none">
     <div class="card">
+      <div class="chip-row" id="chart-category-filter"></div>
       <div class="chip-row" id="chart-exercise-buttons"></div>
       <div class="chip-row" id="chart-period-buttons"></div>
       <div class="chart-note" id="chart-note"></div>
@@ -299,13 +302,21 @@
     if (!data.categories) data.categories = {};
 
     const CATEGORIES = ['Arms', 'Legs', 'Core', 'Other'];
+    const CATEGORY_COLORS = { Arms: '#7c3aed', Legs: '#16a34a', Core: '#ea580c', Other: '#6b7280' };
 
     let chartExercise = null;
     let chartPeriod = 'day';
+    let chartCategoryFilter = 'All';
     let exerciseCategoryFilter = 'All';
 
     function getCategory(name) {
       return data.categories[name] || 'Other';
+    }
+
+    function categoryChipStyle(c, active) {
+      if (!active) return '';
+      const color = c === 'All' ? '#2563eb' : CATEGORY_COLORS[c];
+      return ` style="background:${color};color:white;"`;
     }
 
     function save() {
@@ -329,6 +340,7 @@
         document.querySelectorAll('.tab')[['log','history','exercises'].indexOf(t)].classList.toggle('active', t === name);
       });
       if (name === 'history') {
+        renderChartCategoryFilter();
         renderChartExerciseButtons();
         renderChartPeriodButtons();
         renderChart();
@@ -399,9 +411,10 @@
     function renderExerciseCategoryFilter() {
       const options = ['All', ...CATEGORIES];
       const el = document.getElementById('exercise-category-filter');
-      el.innerHTML = options.map(c => `
-        <button type="button" class="chip-btn${c === exerciseCategoryFilter ? ' active' : ''}" onclick="selectExerciseCategoryFilter('${c}')">${c}</button>
-      `).join('');
+      el.innerHTML = options.map(c => {
+        const active = c === exerciseCategoryFilter;
+        return `<button type="button" class="chip-btn${active ? ' active' : ''}"${categoryChipStyle(c, active)} onclick="selectExerciseCategoryFilter('${c}')">${c}</button>`;
+      }).join('');
     }
 
     function selectExerciseCategoryFilter(category) {
@@ -574,12 +587,36 @@
       return keys;
     }
 
+    function renderChartCategoryFilter() {
+      const options = ['All', ...CATEGORIES];
+      const el = document.getElementById('chart-category-filter');
+      el.innerHTML = options.map(c => {
+        const active = c === chartCategoryFilter;
+        return `<button type="button" class="chip-btn${active ? ' active' : ''}"${categoryChipStyle(c, active)} onclick="selectChartCategoryFilter('${c}')">${c}</button>`;
+      }).join('');
+    }
+
+    function selectChartCategoryFilter(category) {
+      chartCategoryFilter = category;
+      renderChartCategoryFilter();
+      renderChartExerciseButtons();
+      renderChart();
+    }
+
     function renderChartExerciseButtons() {
-      if (!chartExercise || !data.exercises.includes(chartExercise)) {
-        chartExercise = data.exercises[0] || null;
+      const filtered = chartCategoryFilter === 'All'
+        ? data.exercises
+        : data.exercises.filter(e => getCategory(e) === chartCategoryFilter);
+
+      if (!chartExercise || !filtered.includes(chartExercise)) {
+        chartExercise = filtered[0] || null;
       }
       const el = document.getElementById('chart-exercise-buttons');
-      el.innerHTML = data.exercises.map(e => `
+      if (filtered.length === 0) {
+        el.innerHTML = `<div class="empty">No ${chartCategoryFilter.toLowerCase()} exercises</div>`;
+        return;
+      }
+      el.innerHTML = filtered.map(e => `
         <button type="button" class="chip-btn${e === chartExercise ? ' active' : ''}" onclick="selectChartExercise('${e}')">${e}</button>
       `).join('');
     }
@@ -643,11 +680,16 @@
 
       const goal = data.goals[exercise];
       const max = Math.max(...keys.map(k => values[k]), goal || 0, 1);
-      const SCALE = 0.85; // reserve headroom so the goal line/label never gets clipped
+      // Bars (and the goal line) only ever scale into the bottom 82.5% of the
+      // chart, guaranteeing a fixed ~28px of clear space at the top for the
+      // goal label - otherwise, when the goal is the tallest value, the
+      // label can get pushed above #chart-scroll's own box and clipped by
+      // its overflow-y:hidden.
+      const TRACK_RATIO = 0.825;
 
       bars.innerHTML = keys.map(k => {
         const value = values[k];
-        const heightPct = Math.max(4, Math.round((value / max) * SCALE * 100));
+        const heightPct = Math.max(4, Math.round((value / max) * TRACK_RATIO * 100));
         const displayValue = Number.isInteger(value) ? value : value.toFixed(1);
         return `
           <div class="chart-bar-col">
@@ -659,9 +701,7 @@
       }).join('');
 
       if (goal) {
-        const labelEl = bars.querySelector('.chart-bar-label');
-        const labelHeight = labelEl ? labelEl.offsetHeight : 0;
-        const bottomPx = labelHeight + (goal / max) * SCALE * bars.clientHeight;
+        const bottomPx = (goal / max) * TRACK_RATIO * bars.clientHeight;
 
         const line = document.createElement('div');
         line.className = 'chart-goal-line';
@@ -669,14 +709,26 @@
         bars.appendChild(line);
 
         const lineLabel = document.createElement('div');
+        lineLabel.id = 'chart-goal-label';
         lineLabel.className = 'chart-goal-label';
-        lineLabel.style.bottom = bottomPx + 'px';
+        lineLabel.style.bottom = (bottomPx + 4) + 'px';
         lineLabel.textContent = 'Goal: ' + goal;
         bars.appendChild(lineLabel);
       }
 
       const scroll = document.getElementById('chart-scroll');
       scroll.scrollLeft = scroll.scrollWidth;
+      positionGoalLabel();
+    }
+
+    // Keeps the goal number docked to the right edge of the visible chart
+    // area, so it stays readable no matter how far the user has scrolled.
+    function positionGoalLabel() {
+      const label = document.getElementById('chart-goal-label');
+      const scroll = document.getElementById('chart-scroll');
+      if (!label) return;
+      const margin = 6;
+      label.style.left = (scroll.scrollLeft + scroll.clientWidth - label.offsetWidth - margin) + 'px';
     }
 
     // ---------- History ----------
@@ -712,6 +764,7 @@
     // ---------- Init ----------
     document.getElementById('log-date').value = todayStr();
     document.getElementById('log-date').addEventListener('change', renderToday);
+    document.getElementById('chart-scroll').addEventListener('scroll', positionGoalLabel);
 
     renderExerciseSelect();
     renderToday();
